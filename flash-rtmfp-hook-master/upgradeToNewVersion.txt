@@ -1,0 +1,43 @@
+每当Flash发布一个新版本，函数地址就变了。那么如何找到新地址呢？
+仔细阅读下面说明，运气好的话，10分钟就能全部找到！
+
+1. 下载新的flash player standalone debug win32版本，并根据这篇文章http://www.sunchangming.com/blog/post/4148.html禁用ASLR。
+
+2. 用IDA载入新的exe。
+首先找到"Adobe Systems 02"这个字符串。把它的名字改成adobeSystem02
+引用adobeSystem02的function应该只有一个。 在11.2 r202版本中它的地址是 007A1E66 ，11.9版本中它的地址是 0091F7AA 。算出这两个地址的差值。
+
+把这个差值加在旧地址上，从而得知新地址大致应该是多少。然后肉眼稍微看看，就能找出以下几个函数的新地址了。
+oldfunc007AE1E1 007AE1E1 -> 0092BB2C
+oldfunc007A17EA 007A17EA -> 0091F12E
+oldfillPacketHeader 0079F539 -> 0091CE80
+oldNoSessionProcessInput 007B2DCE ->0093072A
+oldSessionProcessInput 007A9357 -> 00926C82
+
+还有3个函数，从imports中找。
+在IDA中从imports中找到调用recvfrom的函数，找到调用它的函数，应该只有一个。
+oldfunc5DCFFE -> 006435F8
+
+从imports中找到调用sendto的函数，第一个
+oldfunc5DD07D -> 00643677
+第二个
+oldfunc5DD293 -> 0064388D
+
+---------------------
+如果以上失败，按照下面的步骤手动找：
+引用adobeSystem02的function的function应该有3个。跳转到最下面一个，重命名为decryptPacket
+引用decryptPacket的地方只有一个，是一个vtable，属于类BasicCryptoAdapter。在这个vtable开始的地方，找到引用它的函数，重命名为BasicCryptoAdapter::BasicCryptoAdapter
+
+BasicCryptoAdapter的vtable的第三个函数，进去能找到calcAESKey的引用。
+oldfunc7A17EA -> 0091F12E
+
+从decryptPacket下面，找到-1.414。它上面这个vtable就是ISession。
+再往下就能找到Session的vtable
+从而确定Session_SendChunk这个函数的位置
+
+3.编译release版本的dll，用setdll发布
+copy /Y D:\flashplayer3\flashplayer_11_sa_debug.exe .
+copy /Y D:\github\flash-rtmfp-hook\Release\flashhook.dll .
+"C:\Program Files (x86)\Detours Express 3.0\bin.X86\setdll.exe" /d:flashhook.dll flashplayer_11_sa_debug.exe
+del flashplayer.zip
+zip flashplayer.zip  AUTHORS.txt P2P.mxml README.txt flashhook.dll flashplayer_11_sa_debug.exe  P2P.swf
